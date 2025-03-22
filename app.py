@@ -31,7 +31,8 @@ from sklearn.model_selection import train_test_split, GridSearchCV, KFold, cross
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
 from sklearn.metrics import (confusion_matrix, accuracy_score, precision_score, 
                             recall_score, f1_score, classification_report, 
-                            mean_squared_error, mean_absolute_error, r2_score)
+                            mean_squared_error, mean_absolute_error, r2_score,
+                            log_loss, roc_auc_score, roc_curve)
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
@@ -3132,10 +3133,8 @@ def llm_chat_section():
                                 if models_response.status_code == 200:
                                     models_data = models_response.json()
                                     models = models_data.get("models", [])
-                                    if models:
-                                        st.success(f"✅ Available models: {', '.join([model.get('name') for model in models])}")
-                                    else:
-                                        st.warning("⚠️ No models found in Ollama")
+                                    model_names = [model.get("name") for model in models] if models else []
+                                    st.success(f"✅ Available models: {', '.join(model_names)}")
                                 else:
                                     st.error(f"❌ Failed to get models list: Status {models_response.status_code}")
                             except Exception as me:
@@ -3163,7 +3162,7 @@ def llm_chat_section():
                             "http://localhost:11434/api/chat",
                             json={
                                 "model": test_model,
-                                "messages": [{"role": "user", "content": "Hello, are you working?"}],
+                                "messages": [{"role": "user", "content": "Hello"}],
                                 "stream": False
                             },
                             timeout=30
