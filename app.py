@@ -1,4 +1,36 @@
 import streamlit as st
+import os
+import sys
+
+# Wrap all imports in a function to allow for better error handling
+def load_dependencies():
+    """Load all dependencies and return a status dictionary"""
+    import pandas as pd
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')  # Set non-interactive backend for Streamlit Cloud
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import io
+    import time
+    import base64
+    import datetime
+    import tempfile
+    from datetime import datetime as dt
+    import joblib
+    import platform
+    import psutil
+    
+    # Return success
+    return {"status": "success", "message": "All core dependencies loaded successfully"}
+
+# Load all dependencies first
+dependency_status = load_dependencies()
+if dependency_status["status"] != "success":
+    st.error(dependency_status["message"])
+    st.stop()
+
+# Now we can safely import these modules
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +45,7 @@ from datetime import datetime as dt
 import joblib
 import platform
 import psutil
+
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -1785,68 +1818,146 @@ def evaluate_section():
         st.error("Please preprocess your data first!")
         return
     
-    # Handle both 4-value and 6-value tuple formats
-    processed_data = st.session_state.processed_data
-    if len(processed_data) == 6:
-        _, _, X_train, X_test, y_train, y_test = processed_data
-    else:
-        X_train, X_test, y_train, y_test = processed_data
-    
-    model = st.session_state.trained_model
-    model_type = st.session_state.model_type
-    
-    st.info(f"Currently evaluating: {model_type}")
-    
-    # Determine if it's a deep learning model
-    is_dl_model = isinstance(model, tf.keras.Model)
-    
     try:
-        # Create tabs for different evaluation aspects
-        eval_tabs = st.tabs(["Model Performance", "Feature Analysis", "Predictions"])
-        
-        with eval_tabs[0]:
-            st.markdown("### Model Performance")
+        # Handle both 4-value and 6-value tuple formats
+        processed_data = st.session_state.processed_data
+        if len(processed_data) == 6:
+            _, _, X_train, X_test, y_train, y_test = processed_data
+        else:
+            X_train, X_test, y_train, y_test = processed_data
             
-            # Get predictions
-            if is_dl_model:
-                # Handle data reshaping for CNN and RNN
-                if "CNN" in model_type:
-                    X_test_reshaped = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
-                    y_pred = model.predict(X_test_reshaped)
-                elif "RNN" in model_type:
-                    sequence_length = min(5, X_test.shape[1])
-                    n_features = X_test.shape[1] // sequence_length
-                    X_test_reshaped = X_test.reshape(X_test.shape[0], sequence_length, n_features)
-                    y_pred = model.predict(X_test_reshaped)
+        model = st.session_state.trained_model
+        model_type = st.session_state.model_type
+        
+        st.info(f"Currently evaluating: {model_type}")
+        
+        # Determine if it's a deep learning model
+        is_dl_model = isinstance(model, tf.keras.Model)
+        
+        try:
+            # Create tabs for different evaluation aspects
+            eval_tabs = st.tabs(["Model Performance", "Feature Analysis", "Predictions"])
+            
+            with eval_tabs[0]:
+                st.markdown("### Model Performance")
+                
+                # Get predictions
+                if is_dl_model:
+                    # Handle data reshaping for CNN and RNN
+                    if "CNN" in model_type:
+                        X_test_reshaped = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+                        y_pred = model.predict(X_test_reshaped)
+                    elif "RNN" in model_type:
+                        sequence_length = min(5, X_test.shape[1])
+                        n_features = X_test.shape[1] // sequence_length
+                        X_test_reshaped = X_test.reshape(X_test.shape[0], sequence_length, n_features)
+                        y_pred = model.predict(X_test_reshaped)
+                    else:
+                        y_pred = model.predict(X_test)
                 else:
                     y_pred = model.predict(X_test)
-            else:
-                y_pred = model.predict(X_test)
-            
-            # Determine problem type
-            if isinstance(y_test, pd.Series):
-                y_test_values = y_test.values
-            else:
-                y_test_values = y_test
-            
-            # Handle reshape for numpy arrays only
-            if isinstance(y_test_values, np.ndarray) and len(y_test_values.shape) > 1:
-                unique_classes = np.unique(y_test_values.reshape(-1))
-            else:
-                unique_classes = np.unique(y_test_values)
                 
-            n_classes = len(unique_classes)
-            
-            # Performance metrics
-            st.markdown("#### Performance Metrics:")
-            
-            if n_classes <= 2:  # Binary classification or regression
-                if n_classes == 2:  # Binary classification
+                # Determine problem type
+                if isinstance(y_test, pd.Series):
+                    y_test_values = y_test.values
+                else:
+                    y_test_values = y_test
+                
+                # Handle reshape for numpy arrays only
+                if isinstance(y_test_values, np.ndarray) and len(y_test_values.shape) > 1:
+                    unique_classes = np.unique(y_test_values.reshape(-1))
+                else:
+                    unique_classes = np.unique(y_test_values)
+                    
+                n_classes = len(unique_classes)
+                
+                # Performance metrics
+                st.markdown("#### Performance Metrics:")
+                
+                if n_classes <= 2:  # Binary classification or regression
+                    if n_classes == 2:  # Binary classification
+                        metrics_dict = {
+                            "Accuracy": accuracy_score(y_test, y_pred.round()),
+                            "Precision": precision_score(y_test, y_pred.round()),
+                            "Recall": recall_score(y_test, y_pred.round()),
+                            "F1-Score": f1_score(y_test, y_pred.round())
+                        }
+                        
+                        # Display metrics in columns
+                        cols = st.columns(len(metrics_dict))
+                        for col, (metric_name, value) in zip(cols, metrics_dict.items()):
+                            with col:
+                                st.metric(metric_name, f"{value:.4f}")
+                        
+                        # ROC curve
+                        st.markdown("#### ROC Curve")
+                        fpr, tpr, _ = roc_curve(y_test, y_pred)
+                        roc_auc = roc_auc_score(y_test, y_pred)
+                        
+                        fig_roc, ax_roc = plt.subplots(figsize=(5, 3))  # Smaller figure size
+                        ax_roc.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.2f})')
+                        ax_roc.plot([0, 1], [0, 1], 'k--')
+                        ax_roc.set_xlabel('False Positive Rate', fontsize=8)
+                        ax_roc.set_ylabel('True Positive Rate', fontsize=8)
+                        ax_roc.set_title('ROC Curve', fontsize=10)
+                        ax_roc.legend(loc='lower right', fontsize=8)
+                        ax_roc.tick_params(axis='both', which='major', labelsize=7)
+                        plt.tight_layout()
+                        st.pyplot(fig_roc)
+                    
+                    else:  # Regression
+                        metrics_dict = {
+                            "MSE": mean_squared_error(y_test, y_pred),
+                            "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
+                            "MAE": mean_absolute_error(y_test, y_pred),
+                            "R²": r2_score(y_test, y_pred)
+                        }
+                        
+                        # Display metrics in columns
+                        cols = st.columns(len(metrics_dict))
+                        for col, (metric_name, value) in zip(cols, metrics_dict.items()):
+                            with col:
+                                st.metric(metric_name, f"{value:.4f}")
+                        
+                        # Scatter plot
+                        st.markdown("#### Prediction vs Actual")
+                        fig_scatter, ax_scatter = plt.subplots(figsize=(5, 3))  # Smaller figure size
+                        ax_scatter.scatter(y_test, y_pred, alpha=0.5, s=20)  # Smaller point size
+                        ax_scatter.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=1)
+                        ax_scatter.set_xlabel('Actual Values', fontsize=8)
+                        ax_scatter.set_ylabel('Predicted Values', fontsize=8)
+                        ax_scatter.set_title('Actual vs Predicted Values', fontsize=10)
+                        ax_scatter.tick_params(axis='both', which='major', labelsize=7)
+                        plt.tight_layout()
+                        st.pyplot(fig_scatter)
+                        
+                        # Plot residuals
+                        residuals = y_test - y_pred
+                        fig_resid, ax_resid = plt.subplots(figsize=(5, 3))  # Smaller figure size
+                        ax_resid.scatter(y_pred, residuals, alpha=0.5, s=20)  # Smaller point size
+                        ax_resid.axhline(y=0, color='r', linestyle='--', lw=1)
+                        ax_resid.set_xlabel('Predicted Values', fontsize=8)
+                        ax_resid.set_ylabel('Residuals', fontsize=8)
+                        ax_resid.set_title('Residual Plot', fontsize=10)
+                        ax_resid.tick_params(axis='both', which='major', labelsize=7)
+                        plt.tight_layout()
+                        st.pyplot(fig_resid)
+                    
+                else:  # Multiclass classification
+                    if len(y_pred.shape) > 1:
+                        y_pred_classes = np.argmax(y_pred, axis=1)
+                    else:
+                        y_pred_classes = y_pred
+                    
+                    if len(y_test.shape) > 1:
+                        y_test_classes = np.argmax(y_test, axis=1)
+                    else:
+                        y_test_classes = y_test
+                    
                     metrics_dict = {
-                        "Accuracy": accuracy_score(y_test, y_pred.round()),
-                        "Precision": precision_score(y_test, y_pred.round()),
-                        "Recall": recall_score(y_test, y_pred.round()),
-                        "F1-Score": f1_score(y_test, y_pred.round())
+                        "Accuracy": accuracy_score(y_test_classes, y_pred_classes),
+                        "Macro F1": f1_score(y_test_classes, y_pred_classes, average='macro'),
+                        "Weighted F1": f1_score(y_test_classes, y_pred_classes, average='weighted')
                     }
                     
                     # Display metrics in columns
@@ -1855,98 +1966,21 @@ def evaluate_section():
                         with col:
                             st.metric(metric_name, f"{value:.4f}")
                     
-                    # ROC curve
-                    st.markdown("#### ROC Curve")
-                    fpr, tpr, _ = roc_curve(y_test, y_pred)
-                    roc_auc = roc_auc_score(y_test, y_pred)
-                    
-                    fig_roc, ax_roc = plt.subplots(figsize=(5, 3))  # Smaller figure size
-                    ax_roc.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.2f})')
-                    ax_roc.plot([0, 1], [0, 1], 'k--')
-                    ax_roc.set_xlabel('False Positive Rate', fontsize=8)
-                    ax_roc.set_ylabel('True Positive Rate', fontsize=8)
-                    ax_roc.set_title('ROC Curve', fontsize=10)
-                    ax_roc.legend(loc='lower right', fontsize=8)
-                    ax_roc.tick_params(axis='both', which='major', labelsize=7)
+                    # Plot confusion matrix
+                    cm = confusion_matrix(y_test_classes, y_pred_classes)
+                    fig_cm, ax_cm = plt.subplots(figsize=(5, 3))  # Smaller figure size
+                    sns.heatmap(cm, annot=True, fmt='d', ax=ax_cm, cmap='Blues', annot_kws={"size": 8})
+                    ax_cm.set_title('Confusion Matrix', fontsize=10)
+                    ax_cm.set_ylabel('True Label', fontsize=8)
+                    ax_cm.set_xlabel('Predicted Label', fontsize=8)
+                    ax_cm.tick_params(axis='both', which='major', labelsize=7)
                     plt.tight_layout()
-                    st.pyplot(fig_roc)
-                
-                else:  # Regression
-                    metrics_dict = {
-                        "MSE": mean_squared_error(y_test, y_pred),
-                        "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
-                        "MAE": mean_absolute_error(y_test, y_pred),
-                        "R²": r2_score(y_test, y_pred)
-                    }
+                    st.pyplot(fig_cm)
                     
-                    # Display metrics in columns
-                    cols = st.columns(len(metrics_dict))
-                    for col, (metric_name, value) in zip(cols, metrics_dict.items()):
-                        with col:
-                            st.metric(metric_name, f"{value:.4f}")
-                    
-                    # Scatter plot
-                    st.markdown("#### Prediction vs Actual")
-                    fig_scatter, ax_scatter = plt.subplots(figsize=(5, 3))  # Smaller figure size
-                    ax_scatter.scatter(y_test, y_pred, alpha=0.5, s=20)  # Smaller point size
-                    ax_scatter.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=1)
-                    ax_scatter.set_xlabel('Actual Values', fontsize=8)
-                    ax_scatter.set_ylabel('Predicted Values', fontsize=8)
-                    ax_scatter.set_title('Actual vs Predicted Values', fontsize=10)
-                    ax_scatter.tick_params(axis='both', which='major', labelsize=7)
-                    plt.tight_layout()
-                    st.pyplot(fig_scatter)
-                    
-                    # Plot residuals
-                    residuals = y_test - y_pred
-                    fig_resid, ax_resid = plt.subplots(figsize=(5, 3))  # Smaller figure size
-                    ax_resid.scatter(y_pred, residuals, alpha=0.5, s=20)  # Smaller point size
-                    ax_resid.axhline(y=0, color='r', linestyle='--', lw=1)
-                    ax_resid.set_xlabel('Predicted Values', fontsize=8)
-                    ax_resid.set_ylabel('Residuals', fontsize=8)
-                    ax_resid.set_title('Residual Plot', fontsize=10)
-                    ax_resid.tick_params(axis='both', which='major', labelsize=7)
-                    plt.tight_layout()
-                    st.pyplot(fig_resid)
-            
-            else:  # Multiclass classification
-                if len(y_pred.shape) > 1:
-                    y_pred_classes = np.argmax(y_pred, axis=1)
-                else:
-                    y_pred_classes = y_pred
-                
-                if len(y_test.shape) > 1:
-                    y_test_classes = np.argmax(y_test, axis=1)
-                else:
-                    y_test_classes = y_test
-                
-                metrics_dict = {
-                    "Accuracy": accuracy_score(y_test_classes, y_pred_classes),
-                    "Macro F1": f1_score(y_test_classes, y_pred_classes, average='macro'),
-                    "Weighted F1": f1_score(y_test_classes, y_pred_classes, average='weighted')
-                }
-                
-                # Display metrics in columns
-                cols = st.columns(len(metrics_dict))
-                for col, (metric_name, value) in zip(cols, metrics_dict.items()):
-                    with col:
-                        st.metric(metric_name, f"{value:.4f}")
-                
-                # Plot confusion matrix
-                cm = confusion_matrix(y_test_classes, y_pred_classes)
-                fig_cm, ax_cm = plt.subplots(figsize=(5, 3))  # Smaller figure size
-                sns.heatmap(cm, annot=True, fmt='d', ax=ax_cm, cmap='Blues', annot_kws={"size": 8})
-                ax_cm.set_title('Confusion Matrix', fontsize=10)
-                ax_cm.set_ylabel('True Label', fontsize=8)
-                ax_cm.set_xlabel('Predicted Label', fontsize=8)
-                ax_cm.tick_params(axis='both', which='major', labelsize=7)
-                plt.tight_layout()
-                st.pyplot(fig_cm)
-                
-                # Display classification report
-                st.markdown("#### Classification Report")
-                report = classification_report(y_test_classes, y_pred_classes)
-                st.code(report)
+                    # Display classification report
+                    st.markdown("#### Classification Report")
+                    report = classification_report(y_test_classes, y_pred_classes)
+                    st.code(report)
         
         with eval_tabs[1]:
             st.markdown("### Feature Analysis")
@@ -3040,244 +3074,11 @@ def llm_chat_section():
                         if "model_load_start_time" not in st.session_state:
                             st.session_state.model_load_start_time = time.time()
                         
-                        elapsed_time = time.time() - st.session_state.model_load_start_time
+                        elapsed_time = time.time() - st.session_state.get("model_load_start_time", time.time())
                         st.info(f"Time elapsed: {elapsed_time:.1f} seconds")
             except Exception as e:
                 st.error(f"Error checking model loading status: {str(e)}")
                 st.session_state.model_loading = False
-        
-        # Add a manual status check section
-        with st.expander("⚙️ Troubleshooting & Status Check", expanded=False):
-            st.markdown("### Model Loading Status")
-            if st.session_state.model_loading:
-                elapsed_time = time.time() - st.session_state.get("model_load_start_time", time.time())
-                
-                # Progress bar for visual indication
-                progress_placeholder = st.empty()
-                progress_placeholder.progress(min(100, int(min(elapsed_time / 30.0, 1.0) * 100)))
-                
-                # Show elapsed time
-                st.info(f"⏱️ Loading time: {elapsed_time:.1f} seconds")
-                
-                # Check if loading is taking too long
-                if elapsed_time > 60:
-                    st.warning("⚠️ Loading is taking longer than expected. Check the console logs or Ollama status.")
-                    
-                    # Add a force load button
-                    if "force_load_attempted" not in st.session_state:
-                        st.session_state.force_load_attempted = False
-                        
-                    if not st.session_state.force_load_attempted and st.button("Force Model Load"):
-                        st.session_state.force_load_attempted = True
-                        
-                        try:
-                            # Get the model name
-                            if hasattr(st.session_state, "current_model_path") and st.session_state.current_model_path.startswith("ollama:"):
-                                model_name = st.session_state.current_model_path.split(":", 1)[1]
-                                
-                                # Create model directly without testing
-                                model = OllamaAPIWrapper(model_name)
-                                st.session_state.llm_model = model
-                                st.session_state.model_loaded = True
-                                st.session_state.model_loading = False
-                                
-                                st.success(f"✅ Forced load of model '{model_name}' successful!")
-                                st.experimental_rerun()
-                            else:
-                                st.error("Cannot determine model path. Try loading the model again.")
-                        except Exception as e:
-                            st.error(f"Failed to force load model: {str(e)}")
-                
-                # Add a button to stop the loading process
-                if st.session_state.model_loading and st.button("Cancel Loading"):
-                    st.session_state.model_loading = False
-                    st.session_state.model_load_start_time = None
-                    st.warning("❌ Loading cancelled by user")
-                    st.experimental_rerun()
-            
-            st.markdown("### Console Output")
-            # Create a container for log output
-            log_container = st.container()
-            with log_container:
-                if hasattr(st.session_state, "load_logs") and st.session_state.load_logs:
-                    for log in st.session_state.load_logs:
-                        st.text(log)
-                else:
-                    st.text("No logs available yet")
-                
-                # Add a button to view the Python console output (this requires user to check their console)
-                if st.button("View Terminal Output"):
-                    st.info("Please check your terminal/console where Streamlit is running to see detailed logs.")
-                    st.info("The logs will show the detailed steps of the model loading process.")
-            
-            st.markdown("### Ollama Connection Status")
-            if st.button("Check Ollama Status"):
-                try:
-                    import requests
-                    try:
-                        # Check Ollama API
-                        response = requests.get("http://localhost:11434/api/version", timeout=2)
-                        if response.status_code == 200:
-                            st.success(f"✅ Ollama API is running: {response.json()}")
-                            
-                            # Check models
-                            try:
-                                models_response = requests.get("http://localhost:11434/api/tags", timeout=2)
-                                if models_response.status_code == 200:
-                                    models_data = models_response.json()
-                                    models = models_data.get("models", [])
-                                    model_names = [model.get("name") for model in models] if models else []
-                                    st.success(f"✅ Available models: {', '.join(model_names)}")
-                                else:
-                                    st.error(f"❌ Failed to get models list: Status {models_response.status_code}")
-                            except Exception as me:
-                                st.error(f"❌ Error checking models: {str(me)}")
-                        else:
-                            st.error(f"❌ Ollama API returned status code {response.status_code}")
-                    except requests.exceptions.ConnectionError:
-                        st.error("❌ Could not connect to Ollama API. Is Ollama running?")
-                        st.info("Start Ollama using the Ollama application or command line.")
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
-                except ImportError:
-                    st.error("❌ Requests module not installed. Cannot check Ollama status.")
-            
-            # Manual test message to Ollama
-            st.markdown("### Test Ollama Model Directly")
-            test_model = st.text_input("Model name to test:", value="")
-            if test_model and st.button("Send Test Message"):
-                try:
-                    import requests
-                    import json
-                    st.info(f"Testing model '{test_model}' with a simple message...")
-                    try:
-                        test_response = requests.post(
-                            "http://localhost:11434/api/chat",
-                            json={
-                                "model": test_model,
-                                "messages": [{"role": "user", "content": "Hello"}],
-                                "stream": False
-                            },
-                            timeout=30
-                        )
-                        
-                        if test_response.status_code == 200:
-                            st.success("✅ Model responded successfully!")
-                            
-                            # Show raw response for debugging
-                            st.markdown("**Raw Response:**")
-                            raw_response = test_response.text
-                            st.code(raw_response[:1000] + ("..." if len(raw_response) > 1000 else ""))
-                            
-                            # Try to parse and show the formatted response
-                            try:
-                                if '\n' in raw_response:
-                                    # Handle multi-line response
-                                    first_line = raw_response.split('\n')[0]
-                                    response_data = json.loads(first_line)
-                                else:
-                                    response_data = test_response.json()
-                                
-                                st.markdown("**Parsed Response:**")
-                                st.json(response_data)
-                                
-                                # Display the content separately
-                                if "message" in response_data and "content" in response_data["message"]:
-                                    st.markdown("**Content:**")
-                                    st.markdown(response_data["message"]["content"])
-                            except Exception as parse_err:
-                                st.error(f"❌ Could not parse JSON response: {str(parse_err)}")
-                        else:
-                            st.error(f"❌ Error: {test_response.status_code} - {test_response.text}")
-                    except requests.exceptions.Timeout:
-                        st.warning("⚠️ Request timed out after 30 seconds. The model might be slow to respond.")
-                    except requests.exceptions.ConnectionError:
-                        st.error("❌ Could not connect to Ollama API")
-                    except Exception as e:
-                        st.error(f"❌ Error testing model: {str(e)}")
-                except ImportError:
-                    st.error("❌ Requests module not installed")
-            
-            # Alternative command-line approach
-            st.markdown("### Direct Command Line Check")
-            if st.button("Check Ollama via Command Line"):
-                try:
-                    import subprocess
-                    import os
-                    
-                    # Create a placeholder for output
-                    output_placeholder = st.empty()
-                    output_placeholder.info("Running Ollama status check...")
-                    
-                    # Run the Ollama list command
-                    process = None
-                    if platform.system() == "Windows":
-                        # On Windows, use PowerShell to check if Ollama is installed
-                        process = subprocess.Popen(
-                            ["powershell", "-Command", "(Get-Command ollama -ErrorAction SilentlyContinue) -ne $null"],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True
-                        )
-                        stdout, stderr = process.communicate()
-                        if stdout.strip() == "True":
-                            st.success("✅ Ollama is installed on your system")
-                            # Now list the models
-                            process = subprocess.Popen(
-                                ["powershell", "-Command", "ollama list"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True
-                            )
-                        else:
-                            st.error("❌ Ollama command not found. Is it installed and in your PATH?")
-                    else:
-                        # On Unix-like systems, check if Ollama exists in PATH
-                        try:
-                            process = subprocess.Popen(
-                                ["which", "ollama"],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True
-                            )
-                            stdout, stderr = process.communicate()
-                            if stdout.strip():
-                                st.success(f"✅ Ollama is installed at: {stdout.strip()}")
-                                # Now list the models
-                                process = subprocess.Popen(
-                                    ["ollama", "list"],
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True
-                                )
-                            else:
-                                st.error("❌ Ollama command not found. Is it installed and in your PATH?")
-                        except FileNotFoundError:
-                            st.error("❌ 'which' command not found. This might be a Windows system.")
-                    
-                    # Show the output of ollama list if we got that far
-                    if process:
-                        stdout, stderr = process.communicate()
-                        if stdout:
-                            st.code(stdout)
-                        if stderr:
-                            st.error(f"Error output: {stderr}")
-                            
-                        # Check return code
-                        if process.returncode != 0:
-                            st.error(f"❌ Command failed with return code {process.returncode}")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error executing command: {str(e)}")
-            
-            # Model debugging information
-            st.markdown("### Current Session State")
-            st.json({
-                "model_loading": st.session_state.get("model_loading", False),
-                "model_loaded": st.session_state.get("model_loaded", False),
-                "load_start_time": time.strftime('%H:%M:%S', time.localtime(st.session_state.get("model_load_start_time", time.time()))),
-                "messages_count": len(st.session_state.get("messages", []))
-            })
         
         # Chat interface
         st.markdown("### Chat Interface")
