@@ -1,22 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-# Try to import matplotlib and handle the ImportError
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "matplotlib"])
-    import matplotlib.pyplot as plt
-# Try to import seaborn and handle the ImportError
-try:
-    import seaborn as sns
-except ImportError:
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn"])
-    import seaborn as sns
+import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 import io
 import time
